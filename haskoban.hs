@@ -5,9 +5,12 @@ import System.IO ( BufferMode( NoBuffering )
                  , stdin)
 
 import System.Process (system)
+import System.Directory (doesFileExist)
+import System.Posix.Env (getEnv)
 
 import Data.List ( delete
                  , sort)
+
 
 -- |A Tuple containing two integers for x and y
 type Coord = (Int,Int)
@@ -134,8 +137,8 @@ isFinished :: Warehouse -> Bool
 isFinished wh = sort (getCrates wh) == sort (getStorage wh)
 
 -- |Load a level into memory
-loadLevel :: String -> Warehouse
-loadLevel str =
+parseLevel :: String -> Warehouse
+parseLevel str =
   -- |Start with an empty warehouse and fold over all the elements in the string
   foldl consume (emptyWarehouse{getSize=size}) elems
   where
@@ -181,13 +184,34 @@ emptyWarehouse = Warehouse { getWalls   = []
                            , getSteps   = 0
                            }
 
--- |Load a warehouse from a filepath
-loadFromFile :: FilePath -> IO Warehouse
-loadFromFile fp = do
-  -- |Load the file
-  stuff <- readFile fp
-  -- |Load the warehouse and raise it into the IO monad
-  return $ loadLevel stuff
+
+-- |Find the configuration file
+-- |usually $HOME/.config/haskoban, but sometimes not
+confDir :: IO String
+confDir = do
+  xdg <- getEnv "XDG_CONFIG_HOME"
+  case xdg of
+    Just a -> return $ a ++ "/haskoban/"
+    Nothing -> do
+      home <- getEnv "HOME"
+      case home of
+        Just a -> return $ a ++ "/.config/haskoban/"
+        Nothing -> return "."
+
+
+-- |Load a warehouse by name
+loadLevel :: String -> IO Warehouse
+loadLevel name = confDir >>= get_stuff >>= return . parseLevel
+  where
+    sys_path = LEVEL_DIR ++ name
+    sys_stuff = readFile sys_path
+
+    get_stuff usr_path = do
+        file <- doesFileExist usr_path
+        if file
+            then readFile usr_path
+            else sys_stuff
+
 
 -- |Get a command from the user
 getInput :: IO Command
@@ -212,7 +236,7 @@ main = do
   hSetEcho stdout False
 
   -- |Load the level
-  level <- loadFromFile "level"
+  level <- loadLevel "default"
   -- |Start the alt screen
   system "tput smcup"
   -- |Start the mainloop
